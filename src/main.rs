@@ -5,9 +5,10 @@ use clap::Parser;
 
 use rcli::{
     process_csv, process_decode, process_encode, process_genpass, process_http_serve,
-    process_text_generate, process_text_sign, process_text_verify, Base64SubCommand, Opts,
-    SubCommand, TextSubCommand,
+    process_text_decrypt, process_text_encrypt, process_text_generate, process_text_sign,
+    process_text_verify, Base64SubCommand, Opts, SubCommand, TextSubCommand,
 };
+
 use zxcvbn::zxcvbn;
 
 #[tokio::main]
@@ -70,6 +71,14 @@ async fn main() -> anyhow::Result<()> {
                         fs::write(name.join("ed25519.pk"), &keys[1])?;
                     }
                 }
+            }
+            TextSubCommand::Encrypt(opts) => {
+                let encrypted = process_text_encrypt(&opts.input, &opts.key)?;
+                println!("{:?}", encrypted);
+            }
+            TextSubCommand::Decrypt(opts) => {
+                let decrypted = process_text_decrypt(&opts.input, &opts.key)?;
+                println!("{:?}", decrypted);
             }
         },
         SubCommand::Http(subcmd) => match subcmd {

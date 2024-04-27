@@ -1,7 +1,10 @@
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chacha20poly1305::{
+    aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit, OsRng},
+    ChaCha20Poly1305, Nonce,
+};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
 use std::{fs, io::Read, path::Path};
 
 use crate::{get_reader, process_genpass, TextSignFormat};
@@ -83,6 +86,54 @@ pub fn process_text_generate(format: TextSignFormat) -> Result<Vec<Vec<u8>>> {
     }
 }
 
+pub fn process_text_encrypt(input: &str, key: &str) -> Result<String> {
+    let mut reader = get_reader(input)?;
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf)?;
+
+    let mut key_reader = get_reader(key)?;
+    let mut key_buf = Vec::new();
+    key_reader.read_to_end(&mut key_buf)?;
+
+    let new_key = GenericArray::clone_from_slice(&key_buf);
+    let cipher = ChaCha20Poly1305::new(&new_key);
+    let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng); // 96-bits; unique per message
+    let ciphertext = cipher
+        .encrypt(&nonce, buf.as_ref())
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+
+    let encoded_cipher = URL_SAFE_NO_PAD.encode(ciphertext);
+    let encoded_nonce = URL_SAFE_NO_PAD.encode(nonce);
+    Ok(format!("{}:{}", encoded_nonce, encoded_cipher))
+}
+
+pub fn process_text_decrypt(input: &str, key: &str) -> Result<String> {
+    let mut reader = get_reader(input)?;
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf)?;
+    // convert Vec<u8> to String
+    let buf = String::from_utf8(buf)?;
+    let parts: Vec<&str> = buf.split(':').collect();
+    if parts.len() != 2 {
+        return Err(anyhow::Error::msg("Invalid encoded string"));
+    }
+
+    let nonce = URL_SAFE_NO_PAD.decode(parts[0])?;
+    let ciphertext = URL_SAFE_NO_PAD.decode(parts[1])?;
+    let nonce = Nonce::from_slice(&nonce);
+
+    let mut key_reader = get_reader(key)?;
+    let mut key_buf = Vec::new();
+    key_reader.read_to_end(&mut key_buf)?;
+    let new_key = GenericArray::clone_from_slice(&key_buf);
+
+    let cipher = ChaCha20Poly1305::new(&new_key);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+    Ok(String::from_utf8(plaintext)?)
+}
+
 impl TextSign for Blake3 {
     fn sign(&self, reader: &mut dyn Read) -> Result<Vec<u8>> {
         // TODO: improve perf by reading in chunks
@@ -138,7 +189,7 @@ impl KeyGenerator for Blake3 {
 
 impl KeyGenerator for Ed25519Signer {
     fn generate() -> Result<Vec<Vec<u8>>> {
-        let mut csprng = OsRng;
+        let mut csprng = rand::rngs::OsRng;
         let sk = SigningKey::generate(&mut csprng);
         let pk = sk.verifying_key().to_bytes().to_vec();
         let sk = sk.to_bytes().to_vec();
@@ -200,6 +251,8 @@ impl Ed25519Verifier {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Ok;
+
     use super::*;
 
     #[test]

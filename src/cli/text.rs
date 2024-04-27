@@ -14,6 +14,12 @@ pub enum TextSubCommand {
 
     #[command(about = "Generate a key pair")]
     Generate(TextKeyGenerateOpts),
+
+    #[command(about = "Encrypt a message")]
+    Encrypt(EncryptOpts),
+
+    #[command(about = "Decrypt a message")]
+    Decrypt(DecryptOpts),
 }
 
 #[derive(Debug, Parser)]
@@ -55,6 +61,23 @@ pub struct TextKeyGenerateOpts {
     pub format: TextSignFormat,
     #[arg(short, long, value_parser = valify_path)]
     pub output: PathBuf,
+}
+
+#[derive(Debug, Parser)]
+pub struct EncryptOpts {
+    #[arg(short, long, value_parser = valify_file, default_value = "-")]
+    pub input: String,
+
+    #[arg(short, long, value_parser = valify_file)]
+    pub key: String,
+}
+
+#[derive(Debug, Parser)]
+pub struct DecryptOpts {
+    #[arg(short, long, value_parser = valify_file, default_value = "-")]
+    pub input: String,
+    #[arg(short, long, value_parser = valify_file)]
+    pub key: String,
 }
 
 fn parse_format(format: &str) -> Result<TextSignFormat, anyhow::Error> {
